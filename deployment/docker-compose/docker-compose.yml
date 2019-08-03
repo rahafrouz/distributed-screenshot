@@ -1,0 +1,9 @@
+version: "2"
+services:
+
+  rabbitmq:
+    image: tutum/rabbitmq
+    ports:
+      - 5672:5672
+    environment:
+      - RABBITMQ_PASS=mypass
