@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"github.com/rahafrouz/distributed-screenshot/common"
 	"github.com/streadway/amqp"
 	"log"
 	"os"
@@ -34,8 +36,10 @@ func main() {
 		nil,          // arguments
 	)
 	failOnError(err, "Failed to declare a queue")
-
-	body := bodyFrom(os.Args)
+	msg := datamodel.SSRequest{URL: "http://www.google.com"}
+	body, err := json.Marshal(msg)
+	failOnError(err, "Failed to create message object")
+	//body := bodyFrom(os.Args)
 	err = ch.Publish(
 		"",     // exchange
 		q.Name, // routing key
