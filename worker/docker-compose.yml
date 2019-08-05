@@ -1,0 +1,15 @@
+version: "2"
+
+services:
+  worker:
+    image: rahafrouz/screenshot-worker
+    environment:
+      - AWS_REGION=${AWS_REGION}
+      - GOWITNESS_PATH=${GOWITNESS_PATH}
+      - RMQ_USER=${RMQ_USER}
+      - RMQ_PASS=${RMQ_PASS}
+      - RMQ_BROKER_ADDRESS=${RMQ_BROKER_ADDRESS}
+      - RMQ_BROKER_PORT=${RMQ_BROKER_PORT}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - BUCKET_NAME=${BUCKET_NAME}

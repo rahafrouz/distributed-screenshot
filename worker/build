@@ -1,0 +1,9 @@
+#!/bin/sh
+
+go get
+
+#Build the linux amd64 version of the worker
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build  -a -installsuffix cgo  -o worker
+
+docker build -t "rahafrouz/screenshot-worker" .
+
