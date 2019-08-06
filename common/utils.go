@@ -17,5 +17,5 @@ type ScreenshotHanlder interface {
 
 type CloudStorageHandler interface {
 	init()
-	UploadDataToCloud(fileNameInCloud string, data []byte)
+	UploadDataToCloud(fileNameInCloud string, data []byte) (string, error)
 }
