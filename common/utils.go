@@ -23,8 +23,8 @@ type ScreenshotHanlder interface {
 }
 
 type CloudStorageHandler interface {
-	Init()
-	SaveToCloud(storagePath string, localPath string, data []byte)
+	init()
+	UploadToCloud(storagePath string, localPath string, data []byte)
 }
 
 type S3Storage struct {
