@@ -16,9 +16,9 @@ type ChromeDPScreenshotHandler struct {
 	ctx  context.Context
 }
 
-func (h *ChromeDPScreenshotHandler) TakeScreenshot(url string,
-	destination string,
-	savetofile bool) ([]byte, bool) {
+func (h *ChromeDPScreenshotHandler) TakeScreenshot(url string, destination string, savetofile bool,
+) ([]byte, bool) {
+
 	log.Println("Taking Screenshot Using Chrome")
 
 	//Do the initialization only once (Just the first time)
