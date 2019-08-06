@@ -1,6 +1,7 @@
 package common
 
 import (
+	"bytes"
 	"crypto/rand"
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
@@ -30,6 +31,7 @@ type CloudStorageHandler interface {
 type S3Storage struct {
 	initialized sync.Once
 	uploader    *s3manager.Uploader
+	bucket      string
 }
 
 func (s3 *S3Storage) init() {
@@ -43,15 +45,34 @@ func (s3 *S3Storage) init() {
 	sess, err := session.NewSession(&conf)
 	failOnError(err, "Problem in setting aws session")
 	s3.uploader = s3manager.NewUploader(sess)
+
+	s3.bucket = os.Getenv("BUCKET_NAME")
+
 }
 
-func (s3 *S3Storage) UploadToCloud(storagePath string, localFilePath string, data []byte) {
+func (s3 *S3Storage) UploadFileToCloud(localFilePath string, fileNameInCloud string) (string, error) {
+
+}
+
+func (s3 *S3Storage) UploadDataToCloud(filename string, data []byte) (string, error) {
 	//Do the initialization only once (Just the first time)
 	(*s3).initialized.Do(func() { // <-- atomic, does not allow repeating
 		(*s3).init()
 	})
 
-	//Upload
+	//Upload to s3
+	fmt.Println("Uploading file to S3...")
+	result, err := s3.uploader.Upload(&s3manager.UploadInput{
+		Bucket: aws.String(s3.bucket),
+		Key:    aws.String(filename),
+		Body:   bytes.NewReader(data),
+	})
+
+	failOnError(err, "Error Uploading to S3")
+	//Everything was fine so far
+
+	fmt.Println("Result is: " + result.Location)
+	return result.Location, nil
 
 }
 
