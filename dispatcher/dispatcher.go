@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/rahafrouz/distributed-screenshot/common"
 	"github.com/streadway/amqp"
 	"log"
 	"os"
@@ -28,28 +27,55 @@ func main() {
 	defer ch.Close()
 
 	q, err := ch.QueueDeclare(
-		"task_queue", // name
-		true,         // durable
-		false,        // delete when unused
-		false,        // exclusive
-		false,        // no-wait
-		nil,          // arguments
+		"callback_queue", // name
+		true,             // durable
+		false,            // delete when unused
+		false,            // exclusive
+		false,            // no-wait
+		nil,              // arguments
 	)
 	failOnError(err, "Failed to declare a queue")
-	msg := datamodel.SSRequest{URL: "http://www.google.com"}
+	msg := datamodel.SSRequest{URL: "http://www.ltu.se"}
 	body, err := json.Marshal(msg)
 	failOnError(err, "Failed to create message object")
-	//body := bodyFrom(os.Args)
+
+	corrId := datamodel.TokenGenerator(32)
+
 	err = ch.Publish(
-		"",     // exchange
-		q.Name, // routing key
-		false,  // mandatory
+		"",           // exchange
+		"task_queue", // routing key
+		false,        // mandatory
 		false,
 		amqp.Publishing{
-			DeliveryMode: amqp.Persistent,
-			ContentType:  "text/plain",
-			Body:         []byte(body),
+			DeliveryMode:  amqp.Persistent,
+			ContentType:   "text/plain",
+			CorrelationId: corrId,
+			ReplyTo:       q.Name, //callback_queue
+			Body:          []byte(body),
 		})
+
+	msgs, err := ch.Consume(
+		"callback_queue", // queue
+		"",               // consumer
+		true,             // auto-ack
+		false,            // exclusive
+		false,            // no-local
+		false,            // no-wait
+		nil,              // args
+	)
+
+	failOnError(err, "Failed to register a consumer")
+
+	for d := range msgs {
+		fmt.Println("received a message")
+		if corrId == d.CorrelationId {
+			response := datamodel.SSResponse{}
+			json.Unmarshal(d.Body, response)
+			log.Println("The response is: ", response.ImagePath)
+			failOnError(err, "Failed to convert body to integer")
+			break
+		}
+	}
 	failOnError(err, "Failed to publish a message")
 	log.Printf(" [x] Sent %s", body)
 }

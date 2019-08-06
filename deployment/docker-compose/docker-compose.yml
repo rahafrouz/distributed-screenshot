@@ -7,3 +7,4 @@ services:
       - 5672:5672
     environment:
       - RABBITMQ_PASS=mypass
+

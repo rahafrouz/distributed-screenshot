@@ -1,4 +1,4 @@
-package datamodel
+package common
 
 //Data Structure of the message envelope for sending request
 type SSRequest struct {
