@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"sync"
 )
 
 type ScreenshotHanlder interface {
@@ -18,16 +19,27 @@ func TokenGenerator(size int) string {
 	return fmt.Sprintf("%x", b)
 }
 
-type ChromeDPScreenshotHandler struct{}
+type ChromeDPScreenshotHandler struct {
+	once sync.Once
+}
 
-func (h ChromeDPScreenshotHandler) TakeScreenshot(url string, destination string) bool {
+func (h *ChromeDPScreenshotHandler) TakeScreenshot(url string, destination string) bool {
+	//Do the initialization only once
+	h.once.Do(func() { // <-- atomic, does not allow repeating
+		h.init()
+	})
 	fmt.Println("Taking Screenshot Using Chrome")
+
 	return true
+}
+
+func (h *ChromeDPScreenshotHandler) init() {
+	fmt.Println("Init...")
 }
 
 type GowitnessScreenshotHandler struct{}
 
-func (h GowitnessScreenshotHandler) TakeScreenshot(url string, destination string) bool {
+func (h *GowitnessScreenshotHandler) TakeScreenshot(url string, destination string) bool {
 	fmt.Println("Taking Screenshot Using GoWitness")
 
 	//args := fmt.Sprintf("--headless --disable-gpu --screenshot %s --no-sandbox",url)
