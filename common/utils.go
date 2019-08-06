@@ -23,7 +23,7 @@ type ChromeDPScreenshotHandler struct {
 	once sync.Once
 }
 
-func (h *ChromeDPScreenshotHandler) TakeScreenshot(url string, destination string) bool {
+func (h ChromeDPScreenshotHandler) TakeScreenshot(url string, destination string) bool {
 	//Do the initialization only once
 	h.once.Do(func() { // <-- atomic, does not allow repeating
 		h.init()
@@ -33,7 +33,7 @@ func (h *ChromeDPScreenshotHandler) TakeScreenshot(url string, destination strin
 	return true
 }
 
-func (h *ChromeDPScreenshotHandler) init() {
+func (h ChromeDPScreenshotHandler) init() {
 	fmt.Println("Init...")
 }
 
