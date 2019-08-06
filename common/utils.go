@@ -51,7 +51,7 @@ func (s3 *S3Storage) init() {
 }
 
 func (s3 *S3Storage) UploadFileToCloud(localFilePath string, fileNameInCloud string) (string, error) {
-
+	panic("Not implemented yet")
 }
 
 func (s3 *S3Storage) UploadDataToCloud(filename string, data []byte) (string, error) {
