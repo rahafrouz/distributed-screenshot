@@ -2,6 +2,8 @@
 This is a possible implementation for a service for taking screenshot of a webpage. It shall be scaled up horizontally, and vertically to respond to massive amount of requests. It uses RabbitMQ as the messaging system.
 
 - It uses [chromedp](https://github.com/chromedp/chromedp) as the screenshot engine. Other screenshot engines are possible to add. 
+- It uses the [Request-Reply pattern](https://www.enterpriseintegrationpatterns.com/patterns/messaging/RequestReply.html), that is referred to as Remote Procedure Call (RPC). 
+
 - Worker run jobs in parallel, and send the response, when they have it. 
 - The dispatcher reads the jobs from the file. It sends out the requests and waits for the response.
 - The responses are saved in Amazon S3. The response contains a link to S3 so that user can have access to the screenshot next time.
@@ -9,7 +11,7 @@ This is a possible implementation for a service for taking screenshot of a webpa
 - Worker, and Dispatcher nodes are disigned to be standalone and can be scaled up as a possible "scaling group" in Amazon terms.
 
 ![](https://raw.githubusercontent.com/rahafrouz/distributed-screenshot/master/screenshot%20service.jpg)
-## I one sentence 
+## In one sentence 
 The input is a number of URLs, and the output is a number of screenshots.
 ## Run
 To run it, you should know that there are three components. `worker`, `dispatcher`, `broker`. 
@@ -21,6 +23,10 @@ There are two alternative solutions that we can choose for this service. Current
 There is a trade-off between complexity and cost. 
 
 The full implementation is the approach with message-broker, due to ease of extension for future features. 
+
+## Be Cautious! 
+This architecture is an extended version of [RabbitMQ RPC]()https://www.rabbitmq.com/tutorials/tutorial-six-go.html tutorial. If you want to understand why such architecture is chosen you can read the RabbitMQ tutorial. However, it is important to note that in the RabbitMQ tutorial, as a simplified version, It is not possible to run the "Client" program concurrently. 
+For this project, the dispatcher is a modified version of "client" in the tutorial. It works, but it is recommended to use this system using asynchronous clients such as websocket-enabled for better performance. (Future improvement idea)
 
 ### Broker-based Approach
 The `deployment`, `worker`,`dispatcher` are involved with the broker-based approach. 
@@ -49,4 +55,10 @@ and if the micro-service's resources are getting saturated, it should not get mo
 - The micro-service would have a pool of go-routines that handle screenshot taking in parallel. This parameter depends on the CPU, Memory capability of the OS, since we use chrome-headless, it should be measured over time, to fine-tune this parameter.
 - The micro-service would have a pool of go-routines that handle S3 operations, to prevent exhausting file descriptors. 
 (We cannot have more than a number of open socket connections.)
+
+### License 
+TODO
+### Contact
+If you have any question or suggestion, you can contact me.
+https://rahafrouz.github.io/amir
 
