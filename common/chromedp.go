@@ -11,11 +11,13 @@ import (
 	"sync"
 )
 
+//The ChromeDP handler of screenshot. This engine seems more mature than gowitness. Chrome has to be installed on the machine to use properly.
 type ChromeDPScreenshotHandler struct {
 	once sync.Once
 	ctx  context.Context
 }
 
+//Take the screenshot using Chromedp, and save the result in the byte[] format.
 func (h *ChromeDPScreenshotHandler) TakeScreenshot(url string, destination string, savetofile bool,
 ) ([]byte, bool) {
 
@@ -43,12 +45,14 @@ func (h *ChromeDPScreenshotHandler) TakeScreenshot(url string, destination strin
 	return buf, true
 }
 
+//Initialize should be called only once
 func (h *ChromeDPScreenshotHandler) init() {
 	log.Println("Init...")
 	h.ctx, _ = chromedp.NewContext(context.Background())
 
 }
 
+//Uses the library of chromedp to take a fullscreenshot of the page.
 func (h ChromeDPScreenshotHandler) fullScreenshot(urlstr string, quality int64, res *[]byte) chromedp.Tasks {
 	return chromedp.Tasks{
 		chromedp.Navigate(urlstr),

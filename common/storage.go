@@ -17,6 +17,8 @@ type S3Storage struct {
 	bucket      string
 }
 
+//Initialize the S3 structures. It should be called once, and we use a singleton pattern here.
+//Other details of S3 are taken from environment variables.
 func (s3 *S3Storage) init() {
 	//It would happen once. Init the S3 credentials
 	//select Region to use.
@@ -33,10 +35,13 @@ func (s3 *S3Storage) init() {
 
 }
 
+//To upload a file from disk to the cloud. To use gowitness, we should look for files in a directory, find the screenshot file and upload it.
+//Removed the implementation, as gowitness had problem with concurrency. chromedp is the preffered option.
 func (s3 *S3Storage) UploadFileToCloud(localFilePath string, fileNameInCloud string) (string, error) {
 	panic("Not implemented yet")
 }
 
+//Upload an array of bytes to the cloud. No file-system involved. Everything in memory.
 func (s3 *S3Storage) UploadDataToCloud(filename string, data []byte) (string, error) {
 	//Do the initialization only once (Just the first time)
 	(*s3).initialized.Do(func() { // <-- atomic, does not allow repeating
@@ -49,6 +54,7 @@ func (s3 *S3Storage) UploadDataToCloud(filename string, data []byte) (string, er
 		Bucket: aws.String(s3.bucket),
 		Key:    aws.String(filename),
 		Body:   bytes.NewReader(data),
+		ACL:    aws.String("public-read"),
 	})
 
 	failOnError(err, "Error Uploading to S3")

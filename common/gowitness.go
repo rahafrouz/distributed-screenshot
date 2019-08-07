@@ -8,8 +8,7 @@ import (
 
 type GowitnessScreenshotHandler struct{}
 
-//It has problem with concurrency. When run in parallel, it does not behave normally (Sometimes it doesn't get screenshot)
-
+//DEPRECATED. It has problem with concurrency. When run in parallel, it does not behave normally (Sometimes it doesn't get screenshot)
 func (h *GowitnessScreenshotHandler) TakeScreenshot(url string,
 	destination string,
 	savetofile bool) ([]byte, bool) {
