@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"github.com/rahafrouz/distributed-screenshot/common"
 	"github.com/streadway/amqp"
 	"log"
+	"net/url"
 	"os"
-	"strings"
+	"os/signal"
+	"syscall"
 )
 
 func failOnError(err error, msg string) {
@@ -15,9 +19,40 @@ func failOnError(err error, msg string) {
 	}
 }
 
-//type Dispatcher struct{}
+type Dispatcher struct {
+	taskQ     amqp.Queue
+	callbackQ amqp.Queue
+	ch        *amqp.Channel
+	conn      *amqp.Connection
+	err       error
+}
 
-func main() {
+func (d *Dispatcher) init() {
+	//var dispatch Dispatcher
+	d.conn, _ = amqp.Dial("amqp://admin:mypass@localhost:5672/")
+	//failOnError(err, "Failed to connect to RabbitMQ")
+	//defer conn.Close()
+
+	d.ch, _ = d.conn.Channel()
+	//failOnError(err, "Failed to open a channel")
+	//defer ch.Close()
+
+	d.callbackQ, _ = d.ch.QueueDeclare(
+		"callback_queue", //+common.TokenGenerator(5), // name
+		true,             // durable
+		false,            // delete when unused
+		false,            // exclusive
+		false,            // no-wait
+		nil,              // arguments
+	)
+	//failOnError(err, "Failed to declare a queue")
+
+	fmt.Printf("Initialized...")
+}
+
+func SendRequest(url string) {
+
+	//var dispatch Dispatcher
 	conn, err := amqp.Dial("amqp://admin:mypass@localhost:5672/")
 	failOnError(err, "Failed to connect to RabbitMQ")
 	defer conn.Close()
@@ -26,20 +61,23 @@ func main() {
 	failOnError(err, "Failed to open a channel")
 	defer ch.Close()
 
-	q, err := ch.QueueDeclare(
-		"callback_queue", // name
+	callbackQ, err := ch.QueueDeclare(
+		"callback_queue", //+common.TokenGenerator(5), // name
 		true,             // durable
 		false,            // delete when unused
 		false,            // exclusive
 		false,            // no-wait
 		nil,              // arguments
 	)
-	failOnError(err, "Failed to declare a queue")
-	msg := datamodel.SSRequest{URL: "http://www.ltu.se"}
+	//failOnError(err, "Failed to declare a queue")
+
+	fmt.Printf("Initialized...")
+
+	msg := common.SSRequest{URL: url}
 	body, err := json.Marshal(msg)
 	failOnError(err, "Failed to create message object")
 
-	corrId := datamodel.TokenGenerator(32)
+	corrId := common.TokenGenerator(5)
 
 	err = ch.Publish(
 		"",           // exchange
@@ -50,50 +88,91 @@ func main() {
 			DeliveryMode:  amqp.Persistent,
 			ContentType:   "text/plain",
 			CorrelationId: corrId,
-			ReplyTo:       q.Name, //callback_queue
+			ReplyTo:       callbackQ.Name, //callback_queue
 			Body:          []byte(body),
 		})
 
+	//Now get the response back
+	log.Printf("sent a message with correlation_id: %s", corrId)
 	msgs, err := ch.Consume(
-		"callback_queue", // queue
-		"",               // consumer
-		true,             // auto-ack
-		false,            // exclusive
-		false,            // no-local
-		false,            // no-wait
-		nil,              // args
+		callbackQ.Name, // queue
+		"",             // consumer
+		false,          // auto-ack
+		false,          // exclusive
+		false,          // no-local
+		false,          // no-wait
+		nil,            // args
 	)
-
+	//log.Printf("^^^^^^^^^^^^^^%s^^^^^^^^^^^^^^^^^^^^^^^",d.callbackQ.Name)
 	failOnError(err, "Failed to register a consumer")
 
 	for d := range msgs {
-		fmt.Println("received a message")
+
 		if corrId == d.CorrelationId {
-			response := datamodel.SSResponse{}
-			json.Unmarshal(d.Body, response)
-			log.Println("The response is: ", response.ImagePath)
+			response := common.SSResponse{}
+			json.Unmarshal(d.Body, &response)
+			log.Printf(" [RESULT] URL: %s\nSCREENSHOT: %s", url, response.ImagePath)
+			//log.Printf("Received a message: %s", d.Body)
+			//log.Printf("\n+++++++ %s The response is: %s ",corrId, response.ImagePath)
 			failOnError(err, "Failed to convert body to integer")
+			d.Ack(false)
 			break
 		}
+		d.Nack(false, true)
+
 	}
 	failOnError(err, "Failed to publish a message")
-	log.Printf(" [x] Sent %s", body)
-}
+	//log.Printf("\n ********* [x] Response of %s is received: %s",url, body)
 
-func bodyFrom(args []string) string {
-	var s string
-	if (len(args) < 2) || os.Args[1] == "" {
-		s = "hello"
+}
+func main() {
+
+	//dispatch :=Dispatcher{}
+	//dispatch.init()
+	var fileName string
+	if os.Getenv("INPUT_FILE") != "" {
+		fileName = os.Getenv("INPUT_FILE")
 	} else {
-		s = strings.Join(args[1:], " ")
+		fileName = "input.data"
 	}
-	return s
+
+	parseInputFile(fileName)
+
+	//for i:=0;i<5 ;i++  {
+	//	go SendRequest("http://google.com")
+	//	//go SendRequest("http://ltu.se")
+	//}
+
+	// wait for Control+C to quit
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	signal.Notify(c, syscall.SIGTERM)
+	<-c
 }
 
-func Init() {
-	fmt.Printf("Initialized...")
+func parseInputFile(filename string) {
+	file, err := os.Open(filename)
+	failOnError(err, "Unabe to open the file")
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		rawURL := scanner.Text()
+		_, err := url.ParseRequestURI(scanner.Text())
+		if err == nil { //If the URL is valid
+			//Process it!
+			go SendRequest(rawURL)
+		} //We do not process invalid URLs.
+	}
+	failOnError(scanner.Err(), "Scanner got crazy... Watch your file!")
 }
 
-func SendJob(url string) {
-	fmt.Println("Sending a job")
-}
+//return correct result
+//Validate URL
+//Remove comments
+//Add helpful comment
+//Parse File
+//Fix ACL
+//Do other type
+//Write explanation
+//Draw diagram

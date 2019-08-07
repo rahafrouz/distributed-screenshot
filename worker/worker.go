@@ -1,18 +1,14 @@
 package main
 
 import (
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/rahafrouz/distributed-screenshot/common"
 	"github.com/streadway/amqp"
 	"io/ioutil"
 	"log"
 	"os"
-	"path/filepath"
 	"strconv"
 	"sync"
 )
@@ -23,11 +19,11 @@ type Worker struct {
 	q                 amqp.Queue
 	svc               *s3manager.Uploader
 	readDirMux        sync.Mutex
-	screenshotHandler datamodel.ScreenshotHanlder
+	screenshotHandler common.ScreenshotHanlder
+	storageHandler    common.CloudStorageHandler
 }
 
 func failOnError(err error, msg string) {
-	//cmd.Execute()
 	if err != nil {
 		log.Fatalf("%s: %s", msg, err)
 		os.Exit(88)
@@ -41,21 +37,22 @@ func main() {
 
 }
 
-func (w *Worker) InitS3() {
-	//select Region to use.
-	conf := aws.Config{
-		Region:      aws.String(os.Getenv("AWS_REGION")),
-		Credentials: credentials.NewStaticCredentials(os.Getenv("AWS_ACCESS_KEY_ID"), os.Getenv("AWS_SECRET_ACCESS_KEY"), ""),
-	}
-	conf.WithCredentialsChainVerboseErrors(true)
-	sess, err := session.NewSession(&conf)
-	failOnError(err, "Problem in setting aws session")
-	w.svc = s3manager.NewUploader(sess)
-}
+//func (w *Worker) InitS3() {
+//	////select Region to use.
+//	//conf := aws.Config{
+//	//	Region:      aws.String(os.Getenv("AWS_REGION")),
+//	//	Credentials: credentials.NewStaticCredentials(os.Getenv("AWS_ACCESS_KEY_ID"), os.Getenv("AWS_SECRET_ACCESS_KEY"), ""),
+//	//}
+//	//conf.WithCredentialsChainVerboseErrors(true)
+//	//sess, err := session.NewSession(&conf)
+//	//failOnError(err, "Problem in setting aws session")
+//	//w.svc = s3manager.NewUploader(sess)
+//}
 func (w *Worker) InitAndListen() {
 	//w.screenshotHandler = datamodel.GowitnessScreenshotHandler{}
-	w.screenshotHandler = &datamodel.ChromeDPScreenshotHandler{}
-	w.InitS3()
+	w.screenshotHandler = &common.ChromeDPScreenshotHandler{}
+	w.storageHandler = &common.S3Storage{}
+	//w.InitS3()
 	fmt.Printf("Initialized the worker")
 
 	w.GOWITNESS_PATH = os.Getenv("GOWITNESS_PATH")
@@ -124,10 +121,10 @@ func (w *Worker) InitAndListen() {
 	<-forever
 
 }
-func (w Worker) PublishResponse(resultLocation string, d amqp.Delivery) bool {
+func (w Worker) PublishResponse(resultLocation string, d amqp.Delivery) error {
 	log.Println("Finished taking screenshot. Sending back the response")
 
-	responseMsg := datamodel.SSResponse{
+	responseMsg := common.SSResponse{
 		Result:    true,
 		ImagePath: resultLocation,
 	}
@@ -136,10 +133,10 @@ func (w Worker) PublishResponse(resultLocation string, d amqp.Delivery) bool {
 
 	//Send back the response to the callback queue
 	err = w.ch.Publish(
-		"",               // exchange
-		"callback_queue", // routing key: It should be callback_queue
-		false,            // mandatory
-		false,            // immediate
+		"",        // exchange
+		d.ReplyTo, // routing key: It should be callback_queue
+		false,     // mandatory
+		false,     // immediate
 		amqp.Publishing{
 			ContentType:   "text/plain",
 			CorrelationId: d.CorrelationId,
@@ -147,11 +144,8 @@ func (w Worker) PublishResponse(resultLocation string, d amqp.Delivery) bool {
 		})
 
 	failOnError(err, "Failed to publish the RESPONSE message")
-	//Not necessary! Refactor later.
-	if err != nil {
-		return false
-	}
-	return true
+
+	return err
 }
 
 //func (w *Worker) TakeScreenshot(u string, dest string) bool {
@@ -179,19 +173,19 @@ func (w Worker) PublishResponse(resultLocation string, d amqp.Delivery) bool {
 //	//chromium-browser --headless --disable-gpu --screenshot https://www.chromestatus.com/ --no-sandbox
 //}
 
-func makeDir(path string) error {
-	_, err := os.Stat(path)
-
-	if os.IsNotExist(err) {
-		errDir := os.MkdirAll(path, 0777)
-		if errDir != nil {
-			return errDir
-			log.Fatal(err)
-		}
-	}
-	log.Println("Created Directory", path)
-	return nil
-}
+//func makeDir(path string) error {
+//	_, err := os.Stat(path)
+//
+//	if os.IsNotExist(err) {
+//		errDir := os.MkdirAll(path, 0777)
+//		if errDir != nil {
+//			return errDir
+//			log.Fatal(err)
+//		}
+//	}
+//	log.Println("Created Directory", path)
+//	return nil
+//}
 
 func (w *Worker) findFileinDir(path string) string {
 	// A very dangerous way of doing it! TODO: Refactor
@@ -215,52 +209,80 @@ func (w *Worker) findFileinDir(path string) string {
 	return ""
 }
 
+//Takes the request, build the screenshot as a byte[], and then upload the array to s3.
+//No disk Operation involved with this type of handling.
 func (w *Worker) handleJobRequest(d amqp.Delivery) (string, error) {
 
 	log.Printf("Received a message: %s", d.Body)
-	msg := datamodel.SSRequest{}
+
+	msg := common.SSRequest{}
 	err := json.Unmarshal(d.Body, &msg)
 	failOnError(err, "unable to unmarshal message")
 
-	fmt.Println("Check if it a request for fresh one, or cache is allowed; Would take screenshot or send cache")
-	//Generate the destination path
-	b := make([]byte, 25)
-	rand.Read(b)
-	MagicPath := fmt.Sprintf("%x", b)
+	//TODO Here we can pass other options{resolution, viewpoint, etc} for taking screenshot
+	//Take the screenshot!
+	screenshotData, _ := w.screenshotHandler.TakeScreenshot(msg.URL, "", false)
 
-	//MagicPath := datamodel.TokenGenerator(25)
+	//Generate the random token for having unique file names.
+	//Suggestion: have versioning here, or some other logic
+	magicName := common.TokenGenerator(6)
 
-	//Create Directory
-	failOnError(makeDir(MagicPath), "Unable to create directory")
+	magicName = magicName + ".png"
 
-	//Save Screenshot in the MagicPath
-	BasePath := "/usr/src/app/"
-	log.Println("Path to save screenshot: %s", BasePath+MagicPath)
-
-	w.screenshotHandler.TakeScreenshot(msg.URL, BasePath+MagicPath)
-
-	//w.TakeScreenshot(msg.URL, BasePath+MagicPath)
-	//w.TakeScreenshot2(msg.URL,BasePath+MagicPath)
-
-	filename := BasePath + MagicPath + "/" + w.findFileinDir(BasePath+MagicPath+"/")
-	bucket := os.Getenv("BUCKET_NAME")
-
-	file, err := os.Open(filename)
-
-	failOnError(err, "Failed to open file "+filename)
-
-	defer file.Close()
-
-	fmt.Println("Uploading file to S3...", filename)
-	result, err := w.svc.Upload(&s3manager.UploadInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(filepath.Base(filename)),
-		Body:   file,
-	})
-
-	failOnError(err, "Error Uploading to S3")
-	//Everything was fine so far
-
-	fmt.Println("Result is: " + result.Location)
-	return result.Location, nil
+	return w.storageHandler.UploadDataToCloud(magicName, screenshotData)
 }
+
+//DEPRECATED-- JUST PUT IT HERE IN CASE OF REQUIREMENT CHANGE
+//func (w *Worker) dONTUSEITlegacyhandleJobRequest(d amqp.Delivery) (string, error) {
+//
+//	log.Printf("Received a message: %s", d.Body)
+//	msg := common.SSRequest{}
+//	err := json.Unmarshal(d.Body, &msg)
+//	failOnError(err, "unable to unmarshal message")
+//
+//	log.Println("Check if it a request for fresh one, or cache is allowed; Would take screenshot or send cache")
+//
+//	//Generate the destination path
+//	b := make([]byte, 25)
+//	rand.Read(b)
+//	MagicPath := fmt.Sprintf("%x", b)
+//
+//	//MagicPath := datamodel.TokenGenerator(25)
+//
+//	//Create Directory
+//	failOnError(makeDir(MagicPath), "Unable to create directory")
+//
+//	//Save Screenshot in the MagicPath
+//	BasePath := "/usr/src/app/"
+//	log.Println("Path to save screenshot: %s", BasePath+MagicPath)
+//
+//	screenshotData,_ := w.screenshotHandler.TakeScreenshot(msg.URL, BasePath+MagicPath,false)
+//
+//	//w.TakeScreenshot(msg.URL, BasePath+MagicPath)
+//	//w.TakeScreenshot2(msg.URL,BasePath+MagicPath)
+//
+//	filename := BasePath + MagicPath + "/" + w.findFileinDir(BasePath+MagicPath+"/")
+//
+//	file, err := os.Open(filename)
+//
+//	failOnError(err, "Failed to open file "+filename)
+//
+//	defer file.Close()
+//	uploadpath:= MagicPath+".png"
+//
+//	//w.storageHandler.UploadToCloud(uploadpath,"",screenshotData)
+//
+//	//fmt.Println("Uploading file to S3...", filename)
+//	//result, err := w.svc.Upload(&s3manager.UploadInput{
+//	//	Bucket: aws.String(bucket),
+//	//	Key:    aws.String(filepath.Base(filename)),
+//	//	//Body:   file,
+//	//	Body: bytes.NewReader(screenshotData),
+//	//})
+//	//
+//	//failOnError(err, "Error Uploading to S3")
+//	////Everything was fine so far
+//	//
+//	//fmt.Println("Result is: " + result.Location)
+//	//return result.Location, nil
+//}
