@@ -1,13 +1,22 @@
-# S4 Scalable ScreenShot Service
-This is a possible implementation for a service for taking screenshot of a webpage.
+# Distributed ScreenShot Service
+This is a possible implementation for a service for taking screenshot of a webpage. It shall be scaled up horizontally, and vertically to respond to massive amount of requests. It uses RabbitMQ as the messaging system.
 
-## S4 in one sentence 
+- It uses [chromedp](https://github.com/chromedp/chromedp) as the screenshot engine. Other screenshot engines are possible to add. 
+- Worker run jobs in parallel, and send the response, when they have it. 
+- The dispatcher reads the jobs from the file. It sends out the requests and waits for the response.
+- The responses are saved in Amazon S3. The response contains a link to S3 so that user can have access to the screenshot next time.
+- It is written in Go.
+- Worker, and Dispatcher nodes are disigned to be standalone and can be scaled up as a possible "scaling group" in Amazon terms.
+
+![](https://raw.githubusercontent.com/rahafrouz/distributed-screenshot/master/screenshot%20service.jpg)
+## I one sentence 
 The input is a number of URLs, and the output is a number of screenshots.
-
+## Run
+To run it, you should know that there are three components. `worker`, `dispatcher`, `broker`. 
 ## Project Structure
-There are two alternative solutions that we can choose for this service. 
-- With message Broker
-- Without message Broker
+There are two alternative solutions that we can choose for this service. Current Implementation has a broker-based approach. The broker-less approach would be added in the future.
+- With a message Broker
+- Without a message Broker
 
 There is a trade-off between complexity and cost. 
 
