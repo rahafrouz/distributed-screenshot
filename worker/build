@@ -7,3 +7,4 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build  -a -installsuffix cgo  -o worker
 
 docker build -t "rahafrouz/screenshot-worker" .
 
+#Possiblity of docker push
