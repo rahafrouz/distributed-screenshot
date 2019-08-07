@@ -24,3 +24,6 @@ Right now, the `chromedp` engine is implemented. To use another engine, look at 
 To build the worker, refer to `build` file. Most of the options are feeded into the worker from the environment variables. The `docker-compose` is used for deployent. 
 
 *Currently, an executalbe for linux architecture is generated, and added to a container. The container contains chrome.*
+
+## Failing
+If anything happen to a worker, it should just simply get restarted.
