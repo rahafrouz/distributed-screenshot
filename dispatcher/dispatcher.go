@@ -27,17 +27,26 @@ type Dispatcher struct {
 	err       error
 }
 
+//Initialize by crating connection, and channels. The main logic happens in the main function
 func (d *Dispatcher) init() {
-	//var dispatch Dispatcher
-	d.conn, _ = amqp.Dial("amqp://admin:mypass@localhost:5672/")
-	//failOnError(err, "Failed to connect to RabbitMQ")
-	//defer conn.Close()
 
-	d.ch, _ = d.conn.Channel()
-	//failOnError(err, "Failed to open a channel")
-	//defer ch.Close()
+	//Connect to rabbitMQ Broker
+	ConnectionString := fmt.Sprintf("amqp://%s:%s@%s:%s",
+		os.Getenv("RMQ_USER"),
+		os.Getenv("RMQ_PASS"),
+		os.Getenv("RMQ_BROKER_ADDRESS"),
+		os.Getenv("RMQ_BROKER_PORT"),
+	)
+	//ConnectionString="amqp://admin:mypass@localhost:5672"
+	var err error
+	d.conn, err = amqp.Dial(ConnectionString)
+	failOnError(err, "Failed to connect to RabbitMQ")
 
-	d.callbackQ, _ = d.ch.QueueDeclare(
+	d.ch, err = d.conn.Channel()
+	failOnError(err, "Failed to open a channel")
+
+	//The jobs would be sent here
+	d.callbackQ, err = d.ch.QueueDeclare(
 		"callback_queue", //+common.TokenGenerator(5), // name
 		true,             // durable
 		false,            // delete when unused
@@ -45,33 +54,13 @@ func (d *Dispatcher) init() {
 		false,            // no-wait
 		nil,              // arguments
 	)
-	//failOnError(err, "Failed to declare a queue")
+	failOnError(err, "Failed to declare a queue")
 
 	fmt.Printf("Initialized...")
 }
 
-func SendRequest(url string) {
-
-	//var dispatch Dispatcher
-	conn, err := amqp.Dial("amqp://admin:mypass@localhost:5672/")
-	failOnError(err, "Failed to connect to RabbitMQ")
-	defer conn.Close()
-
-	ch, err := conn.Channel()
-	failOnError(err, "Failed to open a channel")
-	defer ch.Close()
-
-	callbackQ, err := ch.QueueDeclare(
-		"callback_queue", //+common.TokenGenerator(5), // name
-		true,             // durable
-		false,            // delete when unused
-		false,            // exclusive
-		false,            // no-wait
-		nil,              // arguments
-	)
-	//failOnError(err, "Failed to declare a queue")
-
-	fmt.Printf("Initialized...")
+//Send a request to the broker, so that it would be handed over to a worker eventually.
+func SendRequest(url string, d *Dispatcher) {
 
 	msg := common.SSRequest{URL: url}
 	body, err := json.Marshal(msg)
@@ -79,7 +68,7 @@ func SendRequest(url string) {
 
 	corrId := common.TokenGenerator(5)
 
-	err = ch.Publish(
+	err = d.ch.Publish(
 		"",           // exchange
 		"task_queue", // routing key
 		false,        // mandatory
@@ -88,36 +77,37 @@ func SendRequest(url string) {
 			DeliveryMode:  amqp.Persistent,
 			ContentType:   "text/plain",
 			CorrelationId: corrId,
-			ReplyTo:       callbackQ.Name, //callback_queue
+			ReplyTo:       d.callbackQ.Name, //callback_queue
 			Body:          []byte(body),
 		})
 
 	//Now get the response back
 	log.Printf("sent a message with correlation_id: %s", corrId)
-	msgs, err := ch.Consume(
-		callbackQ.Name, // queue
-		"",             // consumer
-		false,          // auto-ack
-		false,          // exclusive
-		false,          // no-local
-		false,          // no-wait
-		nil,            // args
+	msgs, err := d.ch.Consume(
+		d.callbackQ.Name, // queue
+		"",               // consumer
+		false,            // auto-ack
+		false,            // exclusive
+		false,            // no-local
+		false,            // no-wait
+		nil,              // args
 	)
-	//log.Printf("^^^^^^^^^^^^^^%s^^^^^^^^^^^^^^^^^^^^^^^",d.callbackQ.Name)
 	failOnError(err, "Failed to register a consumer")
 
+	//Right now, we have sent the message. We sit here and listen to the callback queue.
+	//Whenever a response comes that belongs to us, we ACK it, and we eat it!
 	for d := range msgs {
 
 		if corrId == d.CorrelationId {
 			response := common.SSResponse{}
 			json.Unmarshal(d.Body, &response)
 			log.Printf(" [RESULT] URL: %s\nSCREENSHOT: %s", url, response.ImagePath)
-			//log.Printf("Received a message: %s", d.Body)
-			//log.Printf("\n+++++++ %s The response is: %s ",corrId, response.ImagePath)
 			failOnError(err, "Failed to convert body to integer")
+			//We got the correct message, ACK it.
 			d.Ack(false)
 			break
 		}
+		//The message was not ours. Requeue it
 		d.Nack(false, true)
 
 	}
@@ -127,21 +117,17 @@ func SendRequest(url string) {
 }
 func main() {
 
-	//dispatch :=Dispatcher{}
-	//dispatch.init()
+	dispatch := Dispatcher{}
+	dispatch.init()
 	var fileName string
+	//Is there any input file specified?
 	if os.Getenv("INPUT_FILE") != "" {
 		fileName = os.Getenv("INPUT_FILE")
 	} else {
 		fileName = "input.data"
 	}
 
-	parseInputFile(fileName)
-
-	//for i:=0;i<5 ;i++  {
-	//	go SendRequest("http://google.com")
-	//	//go SendRequest("http://ltu.se")
-	//}
+	parseInputFile(fileName, &dispatch)
 
 	// wait for Control+C to quit
 	c := make(chan os.Signal, 1)
@@ -150,7 +136,7 @@ func main() {
 	<-c
 }
 
-func parseInputFile(filename string) {
+func parseInputFile(filename string, d *Dispatcher) {
 	file, err := os.Open(filename)
 	failOnError(err, "Unabe to open the file")
 	defer file.Close()
@@ -161,18 +147,8 @@ func parseInputFile(filename string) {
 		_, err := url.ParseRequestURI(scanner.Text())
 		if err == nil { //If the URL is valid
 			//Process it!
-			go SendRequest(rawURL)
+			go SendRequest(rawURL, d)
 		} //We do not process invalid URLs.
 	}
 	failOnError(scanner.Err(), "Scanner got crazy... Watch your file!")
 }
-
-//return correct result
-//Validate URL
-//Remove comments
-//Add helpful comment
-//Parse File
-//Fix ACL
-//Do other type
-//Write explanation
-//Draw diagram
